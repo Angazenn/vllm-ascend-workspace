@@ -1417,6 +1417,9 @@ PY
 
 install_container_ssh_packages() {
   docker exec -i "$container" bash -s -- <<'INNER_PKG'
+if [ -f ~/.bashrc ]; then
+  source ~/.bashrc >/dev/null 2>&1
+fi
 set -euo pipefail
 state_file=/tmp/vaws-package-bootstrap.json
 rm -f "$state_file"
@@ -1555,6 +1558,9 @@ INNER_PKG
 
 configure_container_state() {
   docker exec -i "$container" bash -s -- "$port" "$pubkey" "$machine_type" "$container_type" "$soc" "$selected_image" "$workdir" "$namespace" <<'INNER_CFG'
+if [ -f ~/.bashrc ]; then
+  source ~/.bashrc >/dev/null 2>&1
+fi
 set -euo pipefail
 port="$1"
 pubkey="$2"
@@ -1952,14 +1958,14 @@ fi
 container_type="$machine_type"
 write_host_state "$machine_type" "$container_type" "$soc" "$selected_image"
 
-if ! docker exec "$container" bash -lc 'command -v sshd >/dev/null 2>&1 && command -v ssh >/dev/null 2>&1'; then
+if ! docker exec "$container" bash -lc 'if [ -f ~/.bashrc ]; then source ~/.bashrc >/dev/null 2>&1; fi; command -v sshd >/dev/null 2>&1 && command -v ssh >/dev/null 2>&1'; then
   emit_progress "container-ssh" "running" "installing openssh inside the container" 900
   if ! run_with_progress "container-ssh-install" "installing openssh inside the container" 900 install_container_ssh_packages; then
     emit_json '{"success": false, "error": "installing openssh inside container failed", "phase": "container-ssh-install"}'
     exit 30
   fi
-  package_bootstrap="$(docker exec "$container" bash -lc 'cat /tmp/vaws-package-bootstrap.json 2>/dev/null || true')"
-  docker exec "$container" bash -lc 'rm -f /tmp/vaws-package-bootstrap.json' >/dev/null 2>&1 || true
+  package_bootstrap="$(docker exec "$container" bash -lc 'if [ -f ~/.bashrc ]; then source ~/.bashrc >/dev/null 2>&1; fi; cat /tmp/vaws-package-bootstrap.json 2>/dev/null || true')"
+  docker exec "$container" bash -lc 'if [ -f ~/.bashrc ]; then source ~/.bashrc >/dev/null 2>&1; fi; rm -f /tmp/vaws-package-bootstrap.json' >/dev/null 2>&1 || true
   if [ -z "$package_bootstrap" ]; then
     package_bootstrap='{"package_manager": null, "selected_mirror": null, "candidate_timings_ms": {}, "changed_files": [], "changed": false, "install_skipped": false}'
   fi

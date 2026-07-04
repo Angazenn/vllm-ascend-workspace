@@ -215,6 +215,7 @@ Do not remove host firewall rules or host-level `authorized_keys` entries.
 - Use the dedicated container SSH config `/etc/ssh/sshd_vaws_config` instead of editing `/etc/ssh/sshd_config` inline.
 - Quote remote-script arguments that may contain spaces, especially SSH public keys and mesh peer keys, before sending them through `ssh`.
 - Ensure `/run/sshd` exists before starting the dedicated `sshd`.
+- Source `~/.bashrc` at the start of container-side `docker exec` shell commands when it exists; keep stdout-sensitive JSON capture paths quiet.
 - Image pulls should follow the selected mirror order and emit heartbeat-style progress so long `docker pull`, `apt-get update`, and `apt-get install` phases remain attributable. Persist the actually selected image in inventory, not only the selector.
 - Container bootstrap should leave behind `/etc/vaws/host-info.json`, `/etc/vaws/container-info.json`, and `/etc/profile.d/vaws-ascend-env.sh` so later verify / repair runs can see the recorded machine type, container type, and SoC quickly.
 - Container bootstrap should determine ATB C++ ABI once from the runtime Python when possible, write `VAWS_ATB_CXX_ABI`, source ATB with `--cxx_abi=<0|1>`, and patch common image startup files such as `/etc/profile` and `/root/.bashrc` when they source ATB without an explicit ABI.

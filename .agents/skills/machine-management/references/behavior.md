@@ -204,6 +204,7 @@ Container bootstrap writes persistent runtime environment configuration so that 
 
 - `/etc/profile.d/vaws-ascend-env.sh`: adds the runtime Python directory and Ascend driver libs to `PATH` and `LD_LIBRARY_PATH`.
 - `/etc/pip.conf`: configures pip with a single A3-tested source, HuaweiCloud (`https://repo.huaweicloud.com/repository/pypi/simple`). Do not add extra indexes by default.
+- container-side `docker exec` shell commands source `~/.bashrc` when it exists; stdout-sensitive JSON capture paths suppress `.bashrc` output before emitting structured data.
 
 ATB environment initialization must be explicit and fast:
 
