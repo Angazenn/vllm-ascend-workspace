@@ -1,0 +1,4 @@
+interface:
+  display_name: "GLM5 SFA Prefill Offload Verification"
+  short_description: "Launch and verify configurable GLM5 offload serving"
+  default_prompt: "Use $glm5-sfa-prefill-offload-verification to launch the GLM5 SFA prefill offload server on the requested remote target and send the verification request."
