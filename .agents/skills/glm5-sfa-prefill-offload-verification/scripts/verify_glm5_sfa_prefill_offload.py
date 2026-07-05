@@ -40,6 +40,10 @@ DEFAULT_REQUEST_SCRIPT = os.environ.get(
     "/home/zyj/scripts/curl.sh",
 )
 DEFAULT_PORT = env_int("GLM5_SFA_OFFLOAD_PORT", 8900)
+DEFAULT_CONTAINER_SHELL = os.environ.get(
+    "GLM5_SFA_OFFLOAD_CONTAINER_SHELL",
+    "noninteractive",
+)
 ERROR_PATTERNS = "Traceback\\|AssertionError\\|RuntimeError\\|ValueError\\|StopIteration"
 PROGRESS_PREFIX = "__GLM5_SFA_PREFILL_OFFLOAD_PROGRESS__="
 
@@ -105,8 +109,12 @@ def run_ssh(
     return CmdResult(proc.returncode, proc.stdout, proc.stderr)
 
 
-def docker_bash(container: str, script: str) -> str:
-    return f"docker exec {shlex.quote(container)} bash -lc {shlex.quote(script)}"
+def docker_bash(container: str, script: str, container_shell: str) -> str:
+    bash_flag = "-ic" if container_shell == "interactive" else "-lc"
+    return (
+        f"docker exec {shlex.quote(container)} "
+        f"bash {bash_flag} {shlex.quote(script)}"
+    )
 
 
 def run_container(
@@ -117,11 +125,12 @@ def run_container(
     timeout: int,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
 ) -> CmdResult:
     wrapped = f"source ~/.bashrc >/dev/null 2>&1; {script}"
     return run_ssh(
         host,
-        docker_bash(container, wrapped),
+        docker_bash(container, wrapped, container_shell),
         timeout=timeout,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
@@ -135,6 +144,7 @@ def health_code(
     *,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
 ) -> str:
     result = run_container(
         host,
@@ -143,6 +153,7 @@ def health_code(
         timeout=45,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
+        container_shell=container_shell,
     )
     return result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "000"
 
@@ -156,13 +167,27 @@ def launch_server(
     *,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
 ) -> tuple[str | None, CmdResult]:
-    script = (
-        f"cd {shlex.quote(scripts_dir)}; "
-        f"nohup bash {shlex.quote(launch_script)} "
-        f"> {shlex.quote(launch_log_path)} 2>&1 "
-        f"< /dev/null & echo $!"
-    )
+    if container_shell == "interactive":
+        launch_body = (
+            "source ~/.bashrc >/dev/null 2>&1; "
+            f"cd {shlex.quote(scripts_dir)}; "
+            f"bash {shlex.quote(launch_script)}"
+        )
+        script = (
+            f"cd {shlex.quote(scripts_dir)}; "
+            f"nohup bash -ic {shlex.quote(launch_body)} "
+            f"> {shlex.quote(launch_log_path)} 2>&1 "
+            f"< /dev/null & echo $!"
+        )
+    else:
+        script = (
+            f"cd {shlex.quote(scripts_dir)}; "
+            f"nohup bash {shlex.quote(launch_script)} "
+            f"> {shlex.quote(launch_log_path)} 2>&1 "
+            f"< /dev/null & echo $!"
+        )
     result = run_container(
         host,
         container,
@@ -170,6 +195,7 @@ def launch_server(
         timeout=90,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
+        container_shell=container_shell,
     )
     pid = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else None
     return pid, result
@@ -182,14 +208,20 @@ def process_snapshot(
     *,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
 ) -> CmdResult:
     return run_container(
         host,
         container,
-        f"pgrep -af -- {shlex.quote(process_pattern)} || true",
+        (
+            f"pgrep -af -- {shlex.quote(process_pattern)} "
+            "| grep -Ev 'pgrep -af|verify_glm5_sfa_prefill_offload|curl --max-time|grep -n|sed ' "
+            "|| true"
+        ),
         timeout=45,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
+        container_shell=container_shell,
     )
 
 
@@ -203,8 +235,14 @@ def wait_for_health(
     log_path: str,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
+    ignore_log_before_wait: bool,
 ) -> CmdResult:
+    start_line = f"$(wc -l < {shlex.quote(log_path)} 2>/dev/null || echo 0)"
+    if not ignore_log_before_wait:
+        start_line = "0"
     script = f"""
+start_line={start_line}
 deadline=$((SECONDS + {timeout_seconds}))
 while [ "$SECONDS" -lt "$deadline" ]; do
   code=$(curl --max-time 2 -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{port}/health || true)
@@ -212,9 +250,15 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     echo READY
     exit 0
   fi
-  if grep -q "{ERROR_PATTERNS}" {shlex.quote(log_path)} 2>/dev/null; then
+  current_lines=$(wc -l < {shlex.quote(log_path)} 2>/dev/null || echo 0)
+  if [ "$current_lines" -lt "$start_line" ]; then
+    log_segment=$(cat {shlex.quote(log_path)} 2>/dev/null || true)
+  else
+    log_segment=$(tail -n +"$((start_line + 1))" {shlex.quote(log_path)} 2>/dev/null || true)
+  fi
+  if printf '%s\\n' "$log_segment" | grep -q "{ERROR_PATTERNS}"; then
     echo ERROR
-    grep -n -B 30 -A 90 "{ERROR_PATTERNS}" {shlex.quote(log_path)} | tail -260
+    printf '%s\\n' "$log_segment" | grep -n -B 30 -A 90 "{ERROR_PATTERNS}" | tail -260
     exit 1
   fi
   sleep {poll_interval}
@@ -230,6 +274,7 @@ exit 124
         timeout=timeout_seconds + 90,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
+        container_shell=container_shell,
     )
 
 
@@ -240,6 +285,7 @@ def fetch_models(
     *,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
 ) -> tuple[dict[str, Any] | None, CmdResult]:
     result = run_container(
         host,
@@ -248,6 +294,7 @@ def fetch_models(
         timeout=60,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
+        container_shell=container_shell,
     )
     text = result.stdout.strip()
     if not text:
@@ -267,6 +314,7 @@ def run_request(
     timeout_seconds: int,
     ssh_user: str,
     ssh_port: int,
+    container_shell: str,
 ) -> CmdResult:
     script = (
         f"cd {shlex.quote(scripts_dir)}; "
@@ -281,6 +329,7 @@ def run_request(
         timeout=timeout_seconds,
         ssh_user=ssh_user,
         ssh_port=ssh_port,
+        container_shell=container_shell,
     )
 
 
@@ -376,6 +425,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="remote SSH port",
     )
     parser.add_argument("--container", default=DEFAULT_CONTAINER)
+    parser.add_argument(
+        "--container-shell",
+        choices=("noninteractive", "interactive"),
+        default=DEFAULT_CONTAINER_SHELL,
+        help=(
+            "shell mode used inside docker exec; noninteractive uses "
+            "bash -lc, interactive uses bash -ic"
+        ),
+    )
     parser.add_argument("--scripts-dir", default=DEFAULT_SCRIPTS_DIR)
     parser.add_argument("--launch-script", default=DEFAULT_LAUNCH_SCRIPT)
     parser.add_argument(
@@ -420,6 +478,7 @@ def main(argv: list[str] | None = None) -> int:
         "ssh_port": args.ssh_port,
         "ssh_target": ssh_destination(args.host, args.ssh_user),
         "container": args.container,
+        "container_shell": args.container_shell,
         "base_url": base_url,
         "port": args.port,
         "scripts_dir": args.scripts_dir,
@@ -438,6 +497,7 @@ def main(argv: list[str] | None = None) -> int:
             args.port,
             ssh_user=args.ssh_user,
             ssh_port=args.ssh_port,
+            container_shell=args.container_shell,
         )
         output["initial_health"] = initial_health
 
@@ -451,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
                 process_pattern,
                 ssh_user=args.ssh_user,
                 ssh_port=args.ssh_port,
+                container_shell=args.container_shell,
             )
             output["existing_processes"] = process_result.stdout.strip().splitlines()
             if process_result.stdout.strip():
@@ -468,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
                     launch_log_path,
                     ssh_user=args.ssh_user,
                     ssh_port=args.ssh_port,
+                    container_shell=args.container_shell,
                 )
                 launched = launch_result.returncode == 0
                 output["launch"] = {
@@ -502,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
                 log_path=log_path,
                 ssh_user=args.ssh_user,
                 ssh_port=args.ssh_port,
+                container_shell=args.container_shell,
+                ignore_log_before_wait=not launched,
             )
             output["health_wait"] = {
                 "returncode": wait_result.returncode,
@@ -519,6 +583,7 @@ def main(argv: list[str] | None = None) -> int:
             args.port,
             ssh_user=args.ssh_user,
             ssh_port=args.ssh_port,
+            container_shell=args.container_shell,
         )
         output["final_health"] = final_health
         if final_health != "200":
@@ -533,6 +598,7 @@ def main(argv: list[str] | None = None) -> int:
             args.port,
             ssh_user=args.ssh_user,
             ssh_port=args.ssh_port,
+            container_shell=args.container_shell,
         )
         model_ids = [
             item.get("id")
@@ -554,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=args.request_timeout,
             ssh_user=args.ssh_user,
             ssh_port=args.ssh_port,
+            container_shell=args.container_shell,
         )
         response = parse_request_response(request_result)
         output["request"] = {

@@ -22,8 +22,11 @@ The verifier is configurable. Defaults preserve the original ad-hoc endpoint:
 - readiness log: `/home/zyj/scripts/log.txt`
 - port: `8900`
 - expected served model: `glm5`
+- container shell mode: `noninteractive` (`bash -lc`)
 
-When the user gives a remote address, SSH user/port, container, scripts directory, launch script, request script, or service port, pass those values to the verifier. Do not edit this skill just to change targets.
+When the user gives a remote address, SSH user/port, container, scripts directory, launch script, request script, service port, or shell mode, pass those values to the verifier. Do not edit this skill just to change targets.
+
+Use `--container-shell interactive` when the user says their manual launch works from an interactive docker shell, or when `.bashrc` gates important runtime setup behind an interactive-shell check. This makes container commands use `bash -ic` instead of the default `bash -lc`.
 
 ## Quick Start
 
@@ -44,6 +47,7 @@ python3 .agents/skills/glm5-sfa-prefill-offload-verification/scripts/verify_glm5
   --scripts-dir /home/zyj/scripts \
   --launch-script /home/zyj/scripts/launch_vllm_offload.sh \
   --request-script /home/zyj/scripts/curl.sh \
+  --container-shell interactive \
   --port 8900
 ```
 
@@ -65,6 +69,8 @@ Probe the host and container:
 ```bash
 ssh <ssh-target> "docker exec <container> bash -lc 'source ~/.bashrc >/dev/null 2>&1; curl --max-time 2 -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:<port>/health || true'"
 ```
+
+With `--container-shell interactive`, the verifier uses `docker exec <container> bash -ic ...` for health, model, and request commands. The launch command also backgrounds `bash -ic 'source ~/.bashrc; cd <scripts-dir>; bash <launch-script>'` so the long-running server is started from an interactive shell environment.
 
 If health is already `200`, reuse the running service. Do not start a duplicate vLLM process.
 
@@ -126,6 +132,7 @@ python3 .agents/skills/glm5-sfa-prefill-offload-verification/scripts/verify_glm5
   --launch-script /home/zyj/scripts/launch_vllm_offload.sh \
   --request-script /home/zyj/scripts/curl.sh \
   --port 8900 \
+  --container-shell noninteractive \
   --health-timeout 900
 ```
 
@@ -144,3 +151,4 @@ Supported environment overrides:
 - `GLM5_SFA_OFFLOAD_LOG_PATH`
 - `GLM5_SFA_OFFLOAD_PROCESS_PATTERN`
 - `GLM5_SFA_OFFLOAD_PORT`
+- `GLM5_SFA_OFFLOAD_CONTAINER_SHELL` (`noninteractive` or `interactive`)
