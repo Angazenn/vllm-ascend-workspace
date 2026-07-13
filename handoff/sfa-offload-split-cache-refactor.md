@@ -4,11 +4,11 @@
 
 - Workspace: `vllm-ascend-workspace`
 - vLLM-Ascend branch: `offload_merge`
-- Current committed HEAD: `5555bffd Refactor SFA decode offload cache`
+- Current committed HEAD: `477ef238 Support split-cache SFA PD disaggregation`
 - Requested reference commit: `db41cf6e SFA indexer spec refactor`
 - Equivalent commit in the reconstructed branch: `c69ad816 SFA indexer spec refactor`
-- Current PD-disaggregation adaptation: implemented and remotely verified, but
-  still uncommitted in the `vllm-ascend` submodule
+- Current PD-disaggregation adaptation: implemented, remotely verified,
+  committed, and pushed to `anga/offload_merge`
 - Primary models: GLM-5.1 and GLM-5.2 SFA
 - Current offload scope: BF16, DCP=1, PCP=1
 - Remotely verified PD configuration: TP16 with one MTP draft token
@@ -26,7 +26,7 @@ spec baseline:
 c69ad816  SFA indexer spec refactor
 334b64bf  Refactor SFA layerwise prefill offload cache
 5555bffd  Refactor SFA decode offload cache
-worktree  Support split-cache SFA PD disaggregation
+477ef238  Support split-cache SFA PD disaggregation
 ```
 
 The updated remote baseline also already contained:
@@ -270,8 +270,8 @@ the HBM source one speculative step too early.
 
 ## PD Disaggregation Refactor
 
-The current uncommitted work adapts `SFAPDCpuOffloadConnector` to the two
-different split layouts used by the P and D nodes.
+Commit `477ef238` adapts `SFAPDCpuOffloadConnector` to the two different split
+layouts used by the P and D nodes.
 
 ### P and D cache layouts
 
@@ -523,23 +523,245 @@ The earlier, narrower design notes remain useful background:
 - `handoff/sfa-indexer-cache-refactor.md`
 - `handoff/offload-cache-refactor.md`
 
-## Current Worktree
+## Patch Size Assessment
 
-The PD-disaggregation implementation is still uncommitted. At the time of this
-handoff it modifies the SFA runtime, cache-interface helpers, group planner,
-model runner, worker, MultiConnector, the SFAPD connector/protocol/threads, and
-the focused SFAPD unit test. It also adds the untracked file:
+The verified implementation is correct, but its review surface is too broad.
+The net diff from the reconstructed split-indexer baseline `c69ad816` through
+`477ef238` is:
 
 ```text
-vllm_ascend/distributed/kv_transfer/sfa_pd_cpu_offload/layout.py
+production: +2256 -1141 = 3397 changed lines
+tests:       +780  -294 = 1074 changed lines
+total:      +3036 -1435 = 4471 changed lines across 33 files
 ```
 
-Do not reset the submodule worktree before committing or backing up these
-changes.
+The three feature commits contribute this churn:
+
+```text
+334b64bf prefill split cache: +913  -801 = 1714
+5555bffd decode split cache:  +878   -45 =  923
+477ef238 PD split cache:     +1284  -628 = 1912
+```
+
+The largest individual files are:
+
+```text
+748  sfa_pd_cpu_offload/read_thread.py
+505  worker/model_runner_v1.py
+460  test_sfa_pd_cpu_offload_single_rank.py
+426  core/kv_cache_interface.py
+266  sfa_pd_cpu_offload/worker.py
+248  ascend_store/pool_worker.py
+225  ascend_store/kv_transfer.py
+```
+
+This is line churn, not merely new logic. In particular, the PD change rewrites
+large portions of descriptor construction, batching, logging, and tests while
+the required semantic change is narrower: P and D need to translate between
+different main/indexer cache layouts.
+
+## Reduction Strategy
+
+### Preserve the verified implementation
+
+Keep `477ef238` and `anga/offload_merge` as the known-correct full-feature
+reference. Do not simplify that branch in place before a replacement branch
+passes the same remote verification. The existing commit is useful as:
+
+- a behavioral reference;
+- a source for focused cherry-picks;
+- a checksum/debug comparison target; and
+- a fallback if the reduced implementation misses a boundary condition.
+
+### Rebuild as stacked scopes
+
+Start the reduced series from `c69ad816`, the reconstructed equivalent of the
+split-indexer baseline. Build independently runnable scopes in this order:
+
+1. Common split-cache offload infrastructure.
+2. Layerwise prefill offload only.
+3. Direct decode offload only.
+4. Decode asynchronous block-finalization correctness.
+5. PD disaggregation compatibility.
+6. MLAPO wait-before-overwrite correctness.
+
+The first verification target should stop after step 2. It should launch
+layerwise `AscendStoreConnector` with `use_offload=false` and pass GLM-5.1 and
+GLM-5.2 prefill-offload checks before decode or PD code is added.
+
+Stacked commits make review easier, but they do not reduce the total diff by
+themselves. The following implementation changes are needed to reduce actual
+LOC and coupling.
+
+### Unify split-indexer infrastructure
+
+The layerwise-prefill and resident-decode indexer implementations currently
+duplicate cache specs, metadata classes, metadata builders, and backends even
+though their page-size and addressing behavior are effectively the same.
+
+Use one shared split-offload indexer implementation, for example:
+
+```text
+AscendSFASplitIndexerCacheSpec
+AscendSFASplitIndexerMetadata
+AscendSFASplitIndexerMetadataBuilder
+AscendSFASplitIndexerBackend
+```
+
+The active connector and main-cache spec already distinguish prefill from
+decode. Group planning can use that mode rather than requiring two nearly
+identical indexer class families.
+
+Also centralize real-indexer owner discovery. One helper should return:
+
+```text
+main layer names ordered by transformer layer ID
+real indexer owner names ordered by transformer layer ID
+main-name/indexer-name mapping by transformer layer ID
+```
+
+The group planner, model runner, AscendStore, decode connector, and PD adapter
+should consume that result instead of repeating layer-name parsing and subset
+validation.
+
+### Isolate model-runner changes
+
+`model_runner_v1.py` currently contains split-spec checks in several generic
+allocation, reshape, binding, and attention-group paths. Replace those
+scattered branches with a small split-SFA allocation adapter that owns:
+
+- physical-pool owner rewriting;
+- raw main/indexer alias selection;
+- owner-specific reshape;
+- cache binding; and
+- legacy kernel-tuple composition metadata.
+
+The generic model-runner loops should call the adapter at one or two explicit
+extension points. They should not need to know every split-indexer spec class.
+
+The five-entry direct-decode main tuple can remain for compatibility, but the
+empty indexer placeholder and bound alias should be assembled in that helper
+rather than handled in multiple allocation branches.
+
+### Keep connector responsibilities narrow
+
+Retain the existing ownership boundaries:
+
+- `AscendStoreConnector` handles prefill/prefix host storage.
+- `SFAKVOffloadConnector` handles main-KV decode CPU offload only.
+- Resident indexer caches never enter the decode CPU pool.
+- `SFAPDCpuOffloadConnector` translates between P and D layouts but does not
+  redefine either connector's local cache ownership.
+
+Introduce a small semantic registration record shared by connectors, such as:
+
+```text
+layer name
+tensor role
+cache group ID
+physical tensor/view
+manager-page scale
+```
+
+AscendStore and SFAPD can build these records once during cache registration.
+Their save/load loops can then remain close to the original implementation.
+
+### Minimize the PD protocol
+
+The current PD implementation is deliberately generic, but that generality is
+unnecessary for the present BF16-only scope. Most of the PD reduction should
+come from restoring the original `read_thread.py` and adapting only metadata
+intake and descriptor construction.
+
+For the reduced protocol:
+
+- Keep fixed BF16 roles: `main_k`, `main_v`, and optional `indexer_k`.
+- Do not carry `indexer_scale`; C8 with offload remains out of scope.
+- Send the sorted real-indexer owner set once per P session.
+- Send source group mapping once per owner or group, not once per tensor on
+  every layer.
+- Send manager-page scale once per group when all entries in that group share
+  it.
+- Continue carrying all P block IDs by group in `READ_READY_BATCH`.
+- Let D derive destination tensors and destination group IDs from its local
+  `SFASplitCacheLayout`.
+
+P and D run the same new protocol and model, so exact owner-set validation is
+sufficient to establish the optional-indexer layout. Repeating role strings,
+group IDs, and scales for every layer is avoidable.
+
+The existing read thread should retain its original:
+
+- request batching;
+- descriptor coalescing;
+- MemFabric execution;
+- completion handling; and
+- normal logging.
+
+Only these areas should change:
+
+1. Accept and validate compact split-layout metadata.
+2. Select P source block IDs by source group.
+3. Append main descriptors and an optional indexer descriptor.
+4. Select the D CPU or HBM destination by semantic cache kind.
+
+This compatibility-adapter approach should remove most of the current
+748-line `read_thread.py` churn.
+
+### Separate orthogonal correctness fixes
+
+Several valuable fixes are not intrinsic to split-cache allocation and should
+be reviewable independently:
+
+- removal of unsupported C8/offload compatibility code;
+- finalized-token tracking before HBM block release;
+- pending versus completed CPU block visibility;
+- MTP-specific indexer metadata fallback; and
+- MLAPO connector wait before a reused cache write.
+
+Keeping these in focused commits makes regressions easier to bisect and avoids
+making cache-layout review depend on asynchronous decode details.
+
+### Reduce test churn without reducing coverage
+
+Do not shrink the patch by deleting behavioral tests. Instead:
+
+- leave existing SFAPD tests unchanged where behavior is unchanged;
+- add split-layout tests in a focused new file;
+- share a compact fixture for P/D cache groups and real-indexer owners;
+- parameterize GLM-5.1 all-indexer and GLM-5.2 sparse-owner cases; and
+- keep block-boundary, MTP, partial-page, and multi-request cases attached to
+  the commit that introduces the relevant behavior.
+
+The current 460-line rewrite of
+`test_sfa_pd_cpu_offload_single_rank.py` should become a small compatibility
+update plus focused new tests for the adapter.
+
+### Review-size target
+
+Aim for no more than roughly 500-600 changed lines per functional review step.
+This is a review target rather than a strict code metric. If the complete
+initial refactor must remain below roughly 1,000 changed lines, PD support must
+be deferred to a stacked follow-up; splitting commits cannot make its protocol
+translation disappear.
+
+## Reference Branch State
+
+The full implementation is committed as:
+
+```text
+477ef238 Support split-cache SFA PD disaggregation
+```
+
+It is pushed to `anga/offload_merge`, and the `vllm-ascend` submodule worktree
+is clean at that commit. The workspace root may still report `M vllm-ascend`
+when its recorded gitlink has not been updated; that does not indicate dirty
+files inside the submodule.
 
 ## Remaining Scope and Risks
 
-- Commit the verified PD work as a distinct follow-up to `5555bffd`.
+- Build the reduced stacked implementation while preserving `477ef238` as the
+  reference branch.
 - Add a repeatable end-to-end PD integration test; current full validation is
   remote/manual plus focused unit tests.
 - Benchmark latency and throughput after correctness is locked down.
@@ -550,5 +772,5 @@ changes.
 - The runtime cache-composition adapter remains coupled to the current SFA
   kernel tuple ABI.
 - Current PD verification used GLM-5.2. The ownership logic generalizes to
-  GLM-5.1, but the final PD worktree should still receive a GLM-5.1 remote
-  regression before upstreaming.
+  GLM-5.1, but the reduced PD implementation should still receive a GLM-5.1
+  remote regression before upstreaming.
