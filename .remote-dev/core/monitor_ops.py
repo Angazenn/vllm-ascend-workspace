@@ -16,6 +16,7 @@ def remote_monitor(
     pattern: str | None = None,
     env: dict[str, str] | None = None,
     runtime_env: bool | None = None,
+    approve_disruptive_action: bool = False,
 ) -> dict[str, Any]:
     monitor_description = description or "Remote monitor"
     if pattern:
@@ -27,6 +28,7 @@ def remote_monitor(
         description=monitor_description,
         timeout_ms=timeout_ms,
         run_in_background=True,
+        approve_disruptive_action=approve_disruptive_action,
         runtime_env=runtime_env,
         env=env or {},
     )

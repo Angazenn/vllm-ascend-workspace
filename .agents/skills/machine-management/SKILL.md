@@ -32,6 +32,10 @@ Ready does **not** imply code sync, rebuild, serving, or benchmark readiness.
 ## Critical rules
 
 - Probe first.
+- Starting, restarting, or recreating the selected target container requires no
+  user approval. Ask before killing any process outside that container. Never
+  reset an NPU/host as part of repair without explicit approval; report an
+  unresolved external occupancy conflict and stop.
 - Be idempotent and conservative.
 - Keep mutations bounded to the requested machine.
 - Treat the bare-metal host as a maintenance plane, not a developer workspace.

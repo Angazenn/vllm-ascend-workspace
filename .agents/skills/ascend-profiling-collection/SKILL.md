@@ -40,6 +40,9 @@ This skill is **only** about collection: start a profiled service, bracket a wor
 
 ## Critical rules
 
+- Replacing or relaunching a service inside the selected target container needs
+  no approval. Ask before killing only when a conflicting process is outside
+  that container.
 - The serving skill must remain profiling-agnostic. Never push profiler-window control or `analyse()` invocation into it.
 - `--profiler-config` is the only profiling-related thing the serving skill knows about, and only because vLLM accepts it as an opaque blob.
 - Run profiling **inside the remote container**. Never copy raw `*_ascend_pt` directories back to the local Mac.

@@ -214,10 +214,10 @@ def call_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     timeout_ms = int(args.get("timeout_ms") or args.get("timeout") or 120000)
     if name == "remote.bash":
         assert endpoint is not None
-        return remote_bash(endpoint, command=str(args["command"]), cwd=args.get("cwd"), description=args.get("description"), timeout_ms=timeout_ms, run_in_background=bool(args.get("run_in_background", False)), runtime_env=args.get("runtime_env"), env=args.get("env") if isinstance(args.get("env"), dict) else {})
+        return remote_bash(endpoint, command=str(args["command"]), cwd=args.get("cwd"), description=args.get("description"), timeout_ms=timeout_ms, run_in_background=bool(args.get("run_in_background", False)), approve_disruptive_action=bool(args.get("approve_disruptive_action", False)), runtime_env=args.get("runtime_env"), env=args.get("env") if isinstance(args.get("env"), dict) else {})
     if name == "remote.monitor":
         assert endpoint is not None
-        return remote_monitor(endpoint, command=str(args["command"]), cwd=args.get("cwd"), description=args.get("description"), timeout_ms=timeout_ms, pattern=args.get("pattern"), runtime_env=args.get("runtime_env"), env=args.get("env") if isinstance(args.get("env"), dict) else {})
+        return remote_monitor(endpoint, command=str(args["command"]), cwd=args.get("cwd"), description=args.get("description"), timeout_ms=timeout_ms, pattern=args.get("pattern"), approve_disruptive_action=bool(args.get("approve_disruptive_action", False)), runtime_env=args.get("runtime_env"), env=args.get("env") if isinstance(args.get("env"), dict) else {})
     if name == "remote.read":
         assert endpoint is not None
         return remote_read(endpoint, file_path=str(args["file_path"]), offset=int(args.get("offset") or 1), limit=int(args.get("limit") or 200), allow_symlink=bool(args.get("allow_symlink", False)), client_context_id=args.get("client_context_id"), timeout_ms=timeout_ms)

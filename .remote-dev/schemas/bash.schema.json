@@ -11,6 +11,7 @@
         "description": {"type": "string"},
         "timeout_ms": {"type": "integer", "default": 120000},
         "run_in_background": {"type": "boolean", "default": false},
+        "approve_disruptive_action": {"type": "boolean", "default": false, "description": "Set only after user approval for an NPU/host reset or outside-target process termination."},
         "env": {"type": "object", "additionalProperties": {"type": "string"}}
       }
     }

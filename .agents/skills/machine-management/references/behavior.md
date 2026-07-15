@@ -34,6 +34,8 @@ Rules:
 - v1 supports one managed workspace container per host
 - wrapper scripts stream phase progress on `stderr` as `__VAWS_PROGRESS__=<json>` and keep one final JSON result on `stdout`
 - on a missing profile, `workspace_profile.py ensure` must use either `--username` or `--generate`
+- restarting the selected managed container requires no approval; resetting the
+  NPU/host or killing a process outside that container does
 
 Relevant files:
 

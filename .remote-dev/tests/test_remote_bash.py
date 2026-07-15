@@ -18,6 +18,67 @@ import core.job_ops as job_ops  # noqa: E402
 
 
 class RemoteBashTests(unittest.TestCase):
+    def test_disruptive_command_requires_approval_without_dispatch(self) -> None:
+        endpoint = Endpoint(host="1.2.3.4", port=46000)
+        original_runner = shell_ops.run_script
+        calls = []
+        try:
+            shell_ops.run_script = lambda *_args, **_kwargs: calls.append(True)  # type: ignore[assignment]
+            payload = shell_ops.remote_bash(endpoint, command="npu-smi set -t reset")
+            self.assertEqual(payload["result"]["outcome"], "blocked")
+            self.assertEqual(payload["result"]["status"], "approval_required")
+            self.assertEqual(calls, [])
+        finally:
+            shell_ops.run_script = original_runner  # type: ignore[assignment]
+
+    def test_approved_disruptive_command_dispatches(self) -> None:
+        endpoint = Endpoint(host="1.2.3.4", port=46000)
+        original_state_root = state_store.substrate_root
+        original_runner = shell_ops.run_script
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                state_store.substrate_root = lambda: Path(tmp)  # type: ignore[assignment]
+                shell_ops.run_script = lambda *_args, **_kwargs: RemoteCompleted(0, "ok\n", "")  # type: ignore[assignment]
+                payload = shell_ops.remote_bash(
+                    endpoint,
+                    command="npu-smi set -t reset",
+                    approve_disruptive_action=True,
+                )
+                self.assertEqual(payload["result"]["outcome"], "success")
+        finally:
+            state_store.substrate_root = original_state_root  # type: ignore[assignment]
+            shell_ops.run_script = original_runner  # type: ignore[assignment]
+
+    def test_background_disruptive_command_is_blocked_before_job_start(self) -> None:
+        endpoint = Endpoint(host="1.2.3.4", port=46000)
+        original_runner = shell_ops.start_remote_job
+        calls = []
+        try:
+            shell_ops.start_remote_job = lambda *_args, **_kwargs: calls.append(True)  # type: ignore[assignment]
+            payload = shell_ops.remote_bash(
+                endpoint,
+                command="npu-smi set -t reset",
+                run_in_background=True,
+            )
+            self.assertEqual(payload["result"]["status"], "approval_required")
+            self.assertEqual(calls, [])
+        finally:
+            shell_ops.start_remote_job = original_runner  # type: ignore[assignment]
+
+    def test_target_container_vllm_restart_needs_no_approval(self) -> None:
+        endpoint = Endpoint(host="1.2.3.4", port=46000)
+        original_state_root = state_store.substrate_root
+        original_runner = shell_ops.run_script
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                state_store.substrate_root = lambda: Path(tmp)  # type: ignore[assignment]
+                shell_ops.run_script = lambda *_args, **_kwargs: RemoteCompleted(0, "ok\n", "")  # type: ignore[assignment]
+                payload = shell_ops.remote_bash(endpoint, command="pkill -f vllm; bash launch_vllm.sh")
+                self.assertEqual(payload["result"]["outcome"], "success")
+        finally:
+            state_store.substrate_root = original_state_root  # type: ignore[assignment]
+            shell_ops.run_script = original_runner  # type: ignore[assignment]
+
     def test_remote_bash_path_escape_returns_blocked_result(self) -> None:
         endpoint = Endpoint(host="1.2.3.4", port=46000, root="/vllm-workspace")
         payload = shell_ops.remote_bash(endpoint, command="pwd", cwd="/tmp")

@@ -24,6 +24,25 @@ class HookGuardTests(unittest.TestCase):
     def test_allows_normal_local_command(self) -> None:
         self.assertFalse(inspect_command("python3 -m compileall .remote-dev").blocked)
 
+    def test_blocks_raw_disruptive_ssh(self) -> None:
+        self.assertTrue(inspect_command('ssh host "pkill -f other_process"').blocked)
+
+    def test_remote_bash_requires_explicit_disruptive_approval(self) -> None:
+        payload = {
+            "tool_name": "remote.bash",
+            "arguments": {"host": "1.2.3.4", "port": 46000, "command": "npu-smi set -t reset"},
+        }
+        self.assertTrue(inspect_payload(payload).blocked)
+        payload["arguments"]["approve_disruptive_action"] = True
+        self.assertFalse(inspect_payload(payload).blocked)
+
+    def test_allows_target_container_vllm_restart(self) -> None:
+        payload = {
+            "tool_name": "remote.bash",
+            "arguments": {"command": "pkill -f vllm; bash launch_vllm.sh"},
+        }
+        self.assertFalse(inspect_payload(payload).blocked)
+
     def test_allows_remote_path_apply_patch(self) -> None:
         decision = inspect_payload({"tool_name": "apply_patch", "command": "*** Update File: /vllm-workspace/foo.py"})
         self.assertFalse(decision.blocked)

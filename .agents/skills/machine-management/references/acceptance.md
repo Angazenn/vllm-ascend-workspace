@@ -91,6 +91,8 @@ These should not trigger `machine-management` unless machine readiness is the ob
 
 ### Repair
 
+- starting, restarting, or recreating the selected target container requires no
+  approval; resetting the NPU/host or killing processes outside it does
 - `machine_repair.py` accepts a single machine identifier for the normal case
 - `machine_repair.py` can request an explicit replacement image when the recorded image is legacy, ambiguous, or the user wants to rotate tracks
 - `machine_repair.py` does not short-circuit to `already-ready` when the recorded image is legacy, ambiguous, or still points at a moving tag

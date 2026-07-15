@@ -16,6 +16,10 @@ ps/kill commands.
 
 ## Critical Rules
 
+- Restarting vLLM or other processes inside the target container, and restarting
+  that target container, require no approval. Ask before resetting an NPU/host
+  or killing a process outside the target container; only then pass
+  `--approve-disruptive-action` to `remote_exec`/`remote_job_start`.
 - Prefer `--session-id` or `--session-file` for parallel work. Use `--machine`
   only for explicitly single-tenant legacy flows.
 - Entry points stream progress to `stderr` as `__VAWS_REMOTE_TOOLBOX_PROGRESS__=<json>`.
@@ -42,6 +46,8 @@ Target and diagnostics:
 python3 .agents/scripts/remote_target_resolve.py (--machine <alias> | --session-id <id> | --session-file <path>)
 python3 .agents/scripts/remote_probe.py (--machine <alias> | --session-id <id> | --session-file <path>)
 python3 .agents/scripts/remote_exec.py --session-id <id> --cwd /vllm-workspace --command 'python3 -V'
+# Target-container restart needs no approval:
+python3 .agents/scripts/remote_exec.py --session-id <id> --command 'pkill -f vllm || true'
 # remote_exec and remote_job_start source /etc/profile.d/vaws-ascend-env.sh by default.
 # Use --no-runtime-env only when intentionally debugging the raw container shell.
 ```
@@ -69,6 +75,7 @@ Service:
 
 ```bash
 python3 .agents/scripts/remote_service_start.py --session-id <id> -- --model /data/models/Qwen --tp 1
+python3 .agents/scripts/remote_service_start.py --session-id <id> -- --relaunch
 python3 .agents/scripts/remote_service_status.py --session-id <id>
 python3 .agents/scripts/remote_service_logs.py --session-id <id> --lines 200
 python3 .agents/scripts/remote_service_stop.py --session-id <id> --force

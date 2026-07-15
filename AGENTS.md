@@ -66,6 +66,11 @@ for domain workflows.
 ## Repo-wide rules
 
 - Never write secrets, passwords, or tokens into tracked files.
+- Restarting vLLM or other processes inside the target container, and restarting
+  that target container, are normal development operations and need no user
+  approval. Ask for explicit approval only before resetting an NPU/host or
+  killing a process outside the target container. If NPU occupancy cannot be
+  cleared from inside the target container, report the conflict and stop.
 - Keep VAWS runtime state under `.vaws-local/` and remote-dev endpoint/tool
   state under `.remote-dev/state/`. Both are untracked.
 - Keep `.gitmodules` on community upstream URLs.

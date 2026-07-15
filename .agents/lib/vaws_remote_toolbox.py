@@ -15,6 +15,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -62,6 +63,39 @@ ARTIFACT_STATE_DIR = STATE_DIR / "artifacts"
 DEFAULT_CONTAINER_CACHE_ROOT = "/root/.cache/vaws/remote-code-parity"
 DEFAULT_REMOTE_TOOLBOX_ROOT = ".vaws-runtime/remote-toolbox"
 TAIL_CHARS = 12000
+
+# Target-container lifecycle operations are normal development work. Only
+# actions that can affect the host/NPU or an explicitly external process are
+# approval-gated here.
+DISRUPTIVE_REMOTE_COMMAND_PATTERNS = (
+    ("npu-reset", re.compile(r"\bnpu-smi\b[^\n;&|]*(?:\breset\b|(?:^|\s)-r(?:\s|$))", re.IGNORECASE)),
+    ("npu-reset", re.compile(r"\bdcmi[^\n;&|]*\breset\b", re.IGNORECASE)),
+    ("host-restart", re.compile(r"(?:^|[;&|]\s*|\bsudo\s+)\b(?:reboot|shutdown\s+-r)\b", re.IGNORECASE)),
+    ("outside-target-kill", re.compile(r"\b(?:ssh\s+\S+[^\n]*|docker\s+exec\s+\S+[^\n]*|nsenter\b[^\n]*)\b(?:kill|pkill|killall)\b", re.IGNORECASE)),
+)
+
+
+def classify_disruptive_remote_command(command: str) -> list[str]:
+    """Return disruptive action classes detected in a remote shell command."""
+    return sorted({name for name, pattern in DISRUPTIVE_REMOTE_COMMAND_PATTERNS if pattern.search(command)})
+
+
+def disruptive_approval_payload(command: str) -> dict[str, Any] | None:
+    actions = classify_disruptive_remote_command(command)
+    if not actions:
+        return None
+    return {
+        "status": "needs_input",
+        "success": False,
+        "approval_required": True,
+        "action": "remote-disruptive-action",
+        "disruptive_actions": actions,
+        "error": (
+            "remote command may reset an NPU/host or kill a process outside the target container; "
+            "ask the user for separate explicit approval, then rerun with "
+            "--approve-disruptive-action"
+        ),
+    }
 
 REMOTE_STATUS_VALUES = {
     "ok",
@@ -1935,6 +1969,11 @@ def cli_exec(argv: Sequence[str] | None = None) -> int:
         help="do not source /etc/profile.d/vaws-ascend-env.sh before running the command",
     )
     parser.add_argument("--command", help="shell command to execute; alternatively pass after --")
+    parser.add_argument(
+        "--approve-disruptive-action",
+        action="store_true",
+        help="confirm user approval for a detected NPU/host reset or outside-target process kill",
+    )
     parser.add_argument("command_args", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     started_at = now_iso()
@@ -1948,6 +1987,10 @@ def cli_exec(argv: Sequence[str] | None = None) -> int:
             command = " ".join(command_args)
         if not command:
             raise RemoteToolboxError("--command or command after -- is required")
+        approval = disruptive_approval_payload(command)
+        if approval is not None and not args.approve_disruptive_action:
+            print_json(approval)
+            return 1
         env = _parse_env_items(args.env)
         payload = remote_exec(
             target_from_args(args),
@@ -1977,10 +2020,19 @@ def cli_job_start(argv: Sequence[str] | None = None) -> int:
         help="do not source /etc/profile.d/vaws-ascend-env.sh before running the job",
     )
     parser.add_argument("--command", required=True)
+    parser.add_argument(
+        "--approve-disruptive-action",
+        action="store_true",
+        help="confirm user approval for a detected NPU/host reset or outside-target process kill",
+    )
     args = parser.parse_args(argv)
     started_at = now_iso()
     start = time.monotonic()
     try:
+        approval = disruptive_approval_payload(args.command)
+        if approval is not None and not args.approve_disruptive_action:
+            print_json(approval)
+            return 1
         env = _parse_env_items(args.env)
         job_id = require_safe_id(args.job_id, label="job id") if args.job_id else None
         payload = start_remote_job(

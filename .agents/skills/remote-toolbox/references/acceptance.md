@@ -3,6 +3,9 @@
 - `python3 -m compileall -q .agents`
 - `git diff --check -- .agents AGENTS.md README.md README.en.md`
 - Every new `remote_*` CLI accepts `--help`.
+- `remote_exec` and `remote_job_start` return `needs_input` before an NPU/host
+  reset or explicit outside-target process kill when approval is absent.
+- Target-container vLLM and container restarts dispatch without approval.
 - `remote_probe` succeeds on 125 and 131 and reports CANN, Python, torch,
   torch_npu, NPU facts, and host/container endpoints.
 - Two concurrent 131 sessions have different container names, SSH ports, NPU

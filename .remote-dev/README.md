@@ -34,6 +34,11 @@ Primary tools:
 - `remote.context_snapshot`
 - `remote.probe`
 
+Restarting vLLM or other processes inside the target container, and restarting
+that target container, require no approval. NPU/host resets and explicit
+outside-target process termination are blocked before SSH dispatch unless
+`approve_disruptive_action=true` is set after user confirmation.
+
 The MCP server is `.remote-dev/mcp/server.py`. CLI fallbacks live under
 `.remote-dev/tools/` and return a JSON object with a human-readable `text`
 field and `remote-dev.result.v1` metadata in `result`. The MCP server supports

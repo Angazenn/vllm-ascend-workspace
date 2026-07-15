@@ -11,6 +11,14 @@ from typing import Any
 
 RAW_REMOTE_RE = re.compile(r"(^|\s)(ssh|scp|sftp|rsync)\b")
 PASSWORD_RE = re.compile(r"(?i)(sshpass|expect\b|--password(?:=|\s+)\S+|password=\S+|token=\S+|api[_-]?key=\S+)")
+DISRUPTIVE_REMOTE_RE = re.compile(
+    r"(?ix)(?:"
+    r"\bnpu-smi\b[^\n;&|]*(?:\breset\b|(?:^|\s)-r(?:\s|$))|"
+    r"\bdcmi[^\n;&|]*\breset\b|"
+    r"(?:^|[;&|]\s*|\bsudo\s+)\b(?:reboot|shutdown\s+-r)\b|"
+    r"\b(?:ssh\s+\S+[^\n]*|docker\s+exec\s+\S+[^\n]*|nsenter\b[^\n]*)\b(?:kill|pkill|killall)\b"
+    r")"
+)
 REMOTE_PATH_FIELDS = ("file_path", "path", "cwd", "remote_path")
 REMOTE_TOOL_PATH_FIELDS = {
     "remote.read": ("file_path",),
@@ -132,6 +140,13 @@ def inspect_remote_tool_call(tool_name: str, tool_input: dict[str, Any]) -> Guar
     canonical = canonical_remote_tool_name(tool_name)
     if not canonical:
         return GuardDecision("allow")
+    if canonical in {"remote.bash", "remote.monitor"}:
+        command = str(tool_input.get("command") or "")
+        if DISRUPTIVE_REMOTE_RE.search(command) and not bool(tool_input.get("approve_disruptive_action")):
+            return GuardDecision(
+                "deny",
+                "NPU/host reset or outside-target process termination requires separate user approval; rerun with approve_disruptive_action=true only after confirmation.",
+            )
     return GuardDecision("allow")
 
 
@@ -143,19 +158,20 @@ def shell_words(command: str) -> list[str]:
 
 
 def inspect_command(command: str) -> GuardDecision:
+    if DISRUPTIVE_REMOTE_RE.search(command):
+        return GuardDecision(
+            "deny",
+            "Use remote.bash and request separate user approval before an NPU/host reset or outside-target process termination.",
+        )
     return GuardDecision("allow")
 
 
 def inspect_payload(payload: dict[str, Any]) -> GuardDecision:
-    command = extract_command(payload)
-    decision = inspect_command(command)
-    if decision.blocked:
-        return decision
-    tool_name = str(payload.get("tool_name") or payload.get("tool") or "")
-    remote_decision = inspect_remote_tool_call(tool_name, extract_tool_input(payload))
-    if remote_decision.blocked:
-        return remote_decision
-    return GuardDecision("allow")
+    tool_name = extract_tool_name(payload)
+    tool_input = extract_tool_input(payload)
+    if canonical_remote_tool_name(tool_name):
+        return inspect_remote_tool_call(tool_name, tool_input)
+    return inspect_command(extract_command(payload))
 
 
 def codex_response(decision: GuardDecision) -> dict[str, Any]:

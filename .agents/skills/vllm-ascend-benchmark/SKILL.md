@@ -28,6 +28,9 @@ compatibility backend for managed VAWS sessions.
 
 ## Critical rules
 
+- Replacing or relaunching a service inside the selected target container needs
+  no approval. Ask before killing only when a conflicting process is outside
+  that container.
 - Benchmark parameters are assembled by the agent based on user intent and executed through the scripts below. The agent must not construct raw `vllm bench serve` commands and run them directly on the remote.
 - **User intent takes priority** over nightly configs. Nightly YAML files under `vllm-ascend/tests/e2e/nightly/single_node/models/configs/` are a **reference source** for discovering how to configure a given model or feature (MTP, graph mode, TP count, etc.), not an execution template to run verbatim.
 - Nightly configs are used as a **fallback** only when the user specifies a model but provides no other parameters.

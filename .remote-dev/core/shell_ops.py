@@ -15,6 +15,16 @@ from .ssh_transport import run_script
 from .state_store import atomic_write_json, atomic_write_text, new_log_dir
 
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+DISRUPTIVE_COMMAND_PATTERNS = (
+    ("npu-reset", re.compile(r"\bnpu-smi\b[^\n;&|]*(?:\breset\b|(?:^|\s)-r(?:\s|$))", re.IGNORECASE)),
+    ("npu-reset", re.compile(r"\bdcmi[^\n;&|]*\breset\b", re.IGNORECASE)),
+    ("host-restart", re.compile(r"(?:^|[;&|]\s*|\bsudo\s+)\b(?:reboot|shutdown\s+-r)\b", re.IGNORECASE)),
+    ("outside-target-kill", re.compile(r"\b(?:ssh\s+\S+[^\n]*|docker\s+exec\s+\S+[^\n]*|nsenter\b[^\n]*)\b(?:kill|pkill|killall)\b", re.IGNORECASE)),
+)
+
+
+def classify_disruptive_command(command: str) -> list[str]:
+    return sorted({name for name, pattern in DISRUPTIVE_COMMAND_PATTERNS if pattern.search(command)})
 
 
 def _duration_ms(start: float) -> int:
@@ -55,11 +65,37 @@ def remote_bash(
     description: str | None = None,
     timeout_ms: int | None = 120000,
     run_in_background: bool = False,
+    approve_disruptive_action: bool = False,
     runtime_env: bool | None = None,
     env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     env = env or {}
     runtime_enabled = endpoint.runtime_env if runtime_env is None else runtime_env
+    disruptive_actions = classify_disruptive_command(command)
+    if disruptive_actions and not approve_disruptive_action:
+        result = make_result(
+            tool="remote.bash",
+            target=endpoint.to_result_target(),
+            outcome="blocked",
+            status="approval_required",
+            summary="RemoteBash blocked pending explicit user approval.",
+            preview={
+                "stderr": (
+                    "Ask the user for separate explicit approval, then rerun "
+                    "with approve_disruptive_action=true."
+                )
+            },
+            next={
+                "suggested_action": "request_user_approval",
+                "message": "Approval is scoped to this disruptive action and target.",
+            },
+            extra={
+                "approval_required": True,
+                "disruptive_actions": disruptive_actions,
+                "command_preview": command[:500],
+            },
+        )
+        return {"text": result["summary"] + "\n" + result["preview"]["stderr"] + "\n", "result": result}
     try:
         cwd = assert_under_root(cwd or endpoint.effective_cwd, endpoint.root)
     except PathPolicyError as exc:

@@ -61,6 +61,10 @@ All memory attribution is based on measured data — **no estimation or guessing
 
 **Always use the `vllm-ascend-serving` skill for service lifecycle management.** This profiling skill only collects and analyzes data — it attaches to a running service. **msprof wrapping is mandatory** for a complete, traceable memory breakdown.
 
+Replacing or relaunching a service inside the selected target container needs
+no approval. Ask before killing only when a conflicting process is outside that
+container.
+
 For parallel agent work, create or reuse a `session-management` session first, then use `--session-id <id>` or `--session-file <session.json>` everywhere below. In session mode, this skill reads serving state from `.vaws-local/sessions/<session-id>/serving.json` and talks only to that session's dedicated container.
 
 Session-scoped memory profiling must use `--attach`. Standalone mode starts its own service and is kept only for legacy single-tenant machine flows; it is blocked when `--session-id` or `--session-file` is used so it cannot bypass session service-port leases or shared state isolation.

@@ -98,6 +98,7 @@ def build_parser(tool: str) -> argparse.ArgumentParser:
         parser.add_argument("--description")
         parser.add_argument("--run-in-background", action="store_true")
         parser.add_argument("--env", action="append")
+        parser.add_argument("--approve-disruptive-action", action="store_true")
     elif tool == "read":
         parser.add_argument("--file-path", required=False)
         parser.add_argument("--offset", type=int, default=1)
@@ -156,6 +157,7 @@ def build_parser(tool: str) -> argparse.ArgumentParser:
         parser.add_argument("--description")
         parser.add_argument("--pattern")
         parser.add_argument("--env", action="append")
+        parser.add_argument("--approve-disruptive-action", action="store_true")
     elif tool == "context_snapshot":
         parser.add_argument("--no-live-probe", action="store_true")
     elif tool == "probe":
@@ -180,10 +182,10 @@ def run_tool(tool: str, args: argparse.Namespace) -> dict[str, Any]:
     timeout_ms = int(data.get("timeout_ms") or args.timeout_ms)
     if tool == "bash":
         assert endpoint is not None
-        return remote_bash(endpoint, command=data.get("command") or args.command or "", cwd=data.get("cwd"), description=data.get("description") or args.description, timeout_ms=timeout_ms, run_in_background=bool(data.get("run_in_background", args.run_in_background)), runtime_env=data.get("runtime_env"), env=data.get("env") if isinstance(data.get("env"), dict) else parse_env(args.env))
+        return remote_bash(endpoint, command=data.get("command") or args.command or "", cwd=data.get("cwd"), description=data.get("description") or args.description, timeout_ms=timeout_ms, run_in_background=bool(data.get("run_in_background", args.run_in_background)), approve_disruptive_action=bool(data.get("approve_disruptive_action", args.approve_disruptive_action)), runtime_env=data.get("runtime_env"), env=data.get("env") if isinstance(data.get("env"), dict) else parse_env(args.env))
     if tool == "monitor":
         assert endpoint is not None
-        return remote_bash(endpoint, command=data.get("command") or args.command or "", cwd=data.get("cwd"), description=data.get("description") or args.description, timeout_ms=timeout_ms, run_in_background=True, runtime_env=data.get("runtime_env"), env=data.get("env") if isinstance(data.get("env"), dict) else parse_env(args.env))
+        return remote_bash(endpoint, command=data.get("command") or args.command or "", cwd=data.get("cwd"), description=data.get("description") or args.description, timeout_ms=timeout_ms, run_in_background=True, approve_disruptive_action=bool(data.get("approve_disruptive_action", args.approve_disruptive_action)), runtime_env=data.get("runtime_env"), env=data.get("env") if isinstance(data.get("env"), dict) else parse_env(args.env))
     if tool == "read":
         assert endpoint is not None
         return remote_read(endpoint, file_path=data.get("file_path") or args.file_path, offset=int(data.get("offset", args.offset)), limit=int(data.get("limit", args.limit)), allow_symlink=bool(data.get("allow_symlink", args.allow_symlink)), client_context_id=data.get("client_context_id") or args.client_context_id, timeout_ms=timeout_ms)

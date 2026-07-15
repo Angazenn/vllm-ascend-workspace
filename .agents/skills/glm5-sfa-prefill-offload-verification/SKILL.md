@@ -24,6 +24,14 @@ The verifier is configurable. Defaults preserve the original ad-hoc endpoint:
 - expected served model: `glm5`
 - container shell mode: `noninteractive` (`bash -lc`)
 
+## Safety boundary
+
+- Health probes, requests, and restarting vLLM or the selected target container
+  do not require approval.
+- Ask for explicit approval before resetting an NPU/host or killing a process
+  outside the target container. If NPU occupancy cannot be cleared from inside
+  the container, report the blocker and stop.
+
 When the user gives a remote address, SSH user/port, container, scripts directory, launch script, request script, service port, or shell mode, pass those values to the verifier. Do not edit this skill just to change targets.
 
 Use `--container-shell interactive` when the user says their manual launch works from an interactive docker shell, or when `.bashrc` gates important runtime setup behind an interactive-shell check. This makes container commands use `bash -ic` instead of the default `bash -lc`.

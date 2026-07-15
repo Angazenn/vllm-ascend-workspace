@@ -32,6 +32,9 @@ This skill takes structured parameters, handles all SSH escaping and remote exec
 
 ## Critical rules
 
+- Restarting or relaunching vLLM inside the selected target container requires
+  no user approval. Ask before killing only when the process is outside that
+  target container; do not reset an NPU/host to clear occupancy.
 - `start` automatically runs `remote-code-parity` before launching. If parity fails, start is blocked.
 - `status` and `stop` do not require parity.
 - For parallel agent work, use `session-management` first and pass `--session-id <id>`. Session mode reads and writes `.vaws-local/sessions/<id>/serving.json` and never stops another session's service.
@@ -138,7 +141,9 @@ The `--machine` argument is looked up in the local machine inventory. The machin
 
 ### 2. Stop any existing service
 
-If a previous service is recorded for this target, it is stopped before launching a new one. In session mode this target is the session, not the base machine, so other sessions on the same host are not touched.
+If a previous service is recorded for this target, it is stopped before
+launching a new one. In session mode this target is the session, not the base
+machine, so other sessions on the same host are not touched.
 
 ### 3. Run remote-code-parity (start only)
 

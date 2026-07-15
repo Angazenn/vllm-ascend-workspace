@@ -11,6 +11,11 @@ accepts `--machine`, `--session-id`, or `--session-file` and returns the host
 SSH endpoint, container SSH endpoint, runtime root, workspace id, session id,
 leased devices, and state paths.
 
+Restarting processes inside the target container or restarting the target
+container requires no approval. NPU/host reset and explicit outside-target
+process termination return `needs_input` unless `--approve-disruptive-action`
+is present after user confirmation.
+
 `remote_probe` verifies observed runtime facts from the running container. It
 reports the recorded image tag separately from host `docker inspect` image id
 because tags are not trusted as proof of the active runtime.

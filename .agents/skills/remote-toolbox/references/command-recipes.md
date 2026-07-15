@@ -28,6 +28,15 @@ Plan install with explicit reasons and consent state:
 python3 .agents/scripts/remote_sync_plan.py --session-id toolbox-a --mode install
 ```
 
+Run an NPU reset only after asking for and receiving user approval:
+
+```bash
+python3 .agents/scripts/remote_exec.py --session-id toolbox-a \
+  --approve-disruptive-action --command 'npu-smi set -t reset'
+```
+
+Target-container server and container restarts do not use this flag.
+
 Validate service failure cleanup:
 
 ```bash
