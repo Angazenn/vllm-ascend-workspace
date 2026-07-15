@@ -1,0 +1,4 @@
+interface:
+  display_name: "MemCache MemFabric Setup"
+  short_description: "Build and configure MemCache/MemFabric"
+  default_prompt: "Use $memcache-memfabric-setup to install and configure MemCache plus the special MemFabric fork on a remote container."
