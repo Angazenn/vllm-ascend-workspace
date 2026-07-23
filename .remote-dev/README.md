@@ -45,6 +45,15 @@ field and `remote-dev.result.v1` metadata in `result`. The MCP server supports
 standard stdio `Content-Length` framing and a newline-delimited JSON-RPC fallback
 for simple tests.
 
+Tool schemas default to standard JSON Schema with endpoint selector `anyOf`
+combinators. Providers that reject combinators at the schema root (for example
+Moonshot's "moonshot flavored json schema", which requires `type` inside each
+`anyOf` item) can set `REMOTE_DEV_SCHEMA_FLAVOR=moonshot` in the MCP server
+environment; the advertised schemas then drop `anyOf`/`allOf` and carry the
+same endpoint-selector and `remote.apply_patch` constraints in their
+descriptions. Server-side endpoint resolution and patch validation enforce the
+constraints either way, so behavior is identical across flavors.
+
 MCP resources expose endpoint state and generated evidence:
 
 - `remote://endpoints`

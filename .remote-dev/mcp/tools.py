@@ -30,7 +30,7 @@ from core.state_store import (  # noqa: E402
     read_text_if_exists,
     state_root,
 )
-from mcp.schemas import ALIASES, TOOL_SCHEMAS  # noqa: E402
+from mcp.schemas import ALIASES, TOOL_SCHEMAS, resolve_tool_schemas  # noqa: E402
 
 ENDPOINT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 ARTIFACT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -58,8 +58,9 @@ def list_tools() -> list[dict[str, Any]]:
         "remote.context_snapshot": "Write a compact endpoint context snapshot.",
         "remote.probe": "Probe basic endpoint facts.",
     }
+    tool_schemas = resolve_tool_schemas()
     return [
-        {"name": name, "description": descriptions.get(name, name), "inputSchema": TOOL_SCHEMAS[name]}
+        {"name": name, "description": descriptions.get(name, name), "inputSchema": tool_schemas[name]}
         for name in TOOL_SCHEMAS
     ]
 

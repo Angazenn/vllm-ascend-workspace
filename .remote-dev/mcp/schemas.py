@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -64,3 +65,44 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 ALIASES: dict[str, str] = {name.replace(".", "_"): name for name in TOOL_SCHEMAS}
+
+
+# When a provider rejects standard JSON Schema combinators at the schema root
+# (Moonshot's "moonshot flavored json schema" requires `type` inside each
+# anyOf item and disallows a root-level `type` next to combinators), set
+# REMOTE_DEV_SCHEMA_FLAVOR=moonshot to advertise combinator-free schemas that
+# carry the same constraints in their descriptions. Server-side endpoint
+# resolution and remote.apply_patch validation enforce the constraints either
+# way, so behavior is identical across flavors.
+SCHEMA_FLAVOR_ENV = "REMOTE_DEV_SCHEMA_FLAVOR"
+MOONSHOT_SCHEMA_FLAVOR = "moonshot"
+
+ENDPOINT_SELECTOR_DESCRIPTION: str = (
+    "Endpoint selector: identify the remote endpoint by providing exactly one of "
+    "(host and port), alias, session_id, session_file, or machine."
+)
+
+APPLY_PATCH_DESCRIPTION: str = "Exactly one of patch or command must be provided."
+
+
+def current_schema_flavor() -> str:
+    return os.environ.get(SCHEMA_FLAVOR_ENV, "standard").strip().lower()
+
+
+def _to_moonshot_schema(name: str, tool_schema: dict[str, Any]) -> dict[str, Any]:
+    converted = {key: value for key, value in tool_schema.items() if key not in {"anyOf", "oneOf", "allOf"}}
+    notes: list[str] = []
+    if {"anyOf": ENDPOINT_SELECTOR_ANY_OF} in tool_schema.get("allOf", []):
+        notes.append(ENDPOINT_SELECTOR_DESCRIPTION)
+    if name == "remote.apply_patch":
+        notes.append(APPLY_PATCH_DESCRIPTION)
+    if notes:
+        converted["description"] = " ".join(notes)
+    return converted
+
+
+def resolve_tool_schemas(flavor: str | None = None) -> dict[str, dict[str, Any]]:
+    flavor = (flavor or current_schema_flavor()).strip().lower()
+    if flavor == MOONSHOT_SCHEMA_FLAVOR:
+        return {name: _to_moonshot_schema(name, tool_schema) for name, tool_schema in TOOL_SCHEMAS.items()}
+    return TOOL_SCHEMAS

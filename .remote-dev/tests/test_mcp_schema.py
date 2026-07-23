@@ -64,6 +64,51 @@ class McpSchemaTests(unittest.TestCase):
         self.assertIn({"required": ["alias"]}, ENDPOINT_SELECTOR_ANY_OF)
         self.assertIn({"required": ["session_id"]}, ENDPOINT_SELECTOR_ANY_OF)
 
+    def test_moonshot_flavor_removes_combinators(self) -> None:
+        from mcp.schemas import APPLY_PATCH_DESCRIPTION, ENDPOINT_SELECTOR_DESCRIPTION, resolve_tool_schemas
+
+        flavored = resolve_tool_schemas("moonshot")
+        self.assertEqual(set(flavored), set(TOOL_SCHEMAS))
+        for name, schema in flavored.items():
+            self.assertEqual(schema.get("type"), "object", name)
+            for combinator in ("anyOf", "oneOf", "allOf"):
+                self.assertNotIn(combinator, schema, name)
+        self.assertIn(ENDPOINT_SELECTOR_DESCRIPTION, flavored["remote.read"].get("description", ""))
+        apply_patch_description = flavored["remote.apply_patch"].get("description", "")
+        self.assertIn(ENDPOINT_SELECTOR_DESCRIPTION, apply_patch_description)
+        self.assertIn(APPLY_PATCH_DESCRIPTION, apply_patch_description)
+        for name in ("remote.job_status", "remote.job_tail", "remote.job_stop"):
+            self.assertNotIn("description", flavored[name], name)
+
+    def test_standard_flavor_remains_the_default(self) -> None:
+        from mcp.schemas import SCHEMA_FLAVOR_ENV, resolve_tool_schemas
+
+        original = os.environ.pop(SCHEMA_FLAVOR_ENV, None)
+        try:
+            self.assertIs(resolve_tool_schemas(), TOOL_SCHEMAS)
+            self.assertIs(resolve_tool_schemas("standard"), TOOL_SCHEMAS)
+            self.assertIn({"anyOf": ENDPOINT_SELECTOR_ANY_OF}, TOOL_SCHEMAS["remote.read"].get("allOf", []))
+            self.assertIn("anyOf", TOOL_SCHEMAS["remote.apply_patch"])
+        finally:
+            if original is not None:
+                os.environ[SCHEMA_FLAVOR_ENV] = original
+
+    def test_list_tools_honors_moonshot_flavor_env(self) -> None:
+        from mcp.schemas import SCHEMA_FLAVOR_ENV
+
+        original = os.environ.pop(SCHEMA_FLAVOR_ENV, None)
+        os.environ[SCHEMA_FLAVOR_ENV] = "moonshot"
+        try:
+            schemas = {tool["name"]: tool["inputSchema"] for tool in list_tools()}
+            self.assertEqual(set(schemas), set(TOOL_SCHEMAS))
+            for name, schema in schemas.items():
+                for combinator in ("anyOf", "oneOf", "allOf"):
+                    self.assertNotIn(combinator, schema, name)
+        finally:
+            os.environ.pop(SCHEMA_FLAVOR_ENV, None)
+            if original is not None:
+                os.environ[SCHEMA_FLAVOR_ENV] = original
+
     def test_resources_include_endpoint_index(self) -> None:
         resources = {resource["uri"] for resource in list_resources()}
         self.assertIn("remote://endpoints", resources)

@@ -6,7 +6,8 @@
       "env": {
         "REMOTE_DEV_DEFAULT_USER": "root",
         "REMOTE_DEV_DEFAULT_ROOT": "/vllm-workspace",
-        "REMOTE_DEV_DEFAULT_CWD": "/vllm-workspace"
+        "REMOTE_DEV_DEFAULT_CWD": "/vllm-workspace",
+        "REMOTE_DEV_SCHEMA_FLAVOR": "moonshot"
       },
       "timeout": 600000
     }
