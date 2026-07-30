@@ -32,6 +32,11 @@ This skill takes structured parameters, handles all SSH escaping and remote exec
 
 ## Critical rules
 
+- When service readiness or a remote request is part of acceptance, the
+  root/main agent must delegate launch, waiting, request execution, and evidence
+  collection according to
+  `../remote-toolbox/references/subagent-verification.md`. An already-delegated
+  subagent executes directly without recursive delegation.
 - Restarting or relaunching vLLM inside the selected target container requires
   no user approval. Ask before killing only when the process is outside that
   target container; do not reset an NPU/host to clear occupancy.

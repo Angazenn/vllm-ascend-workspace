@@ -22,6 +22,9 @@ Default target:
 
 ## Rules
 
+- The root/main agent must delegate the remote AISBench run and result evidence
+  according to `../remote-toolbox/references/subagent-verification.md`. An
+  already-delegated subagent executes directly without recursive delegation.
 - First check `pip show ais_bench_benchmark` and use `Editable project location`
   as the source tree. Do not assume the package lives under site-packages.
 - Do not edit the model config or dataset unless the user asks for a change, or

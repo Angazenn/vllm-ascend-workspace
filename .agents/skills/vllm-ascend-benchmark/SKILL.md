@@ -28,6 +28,11 @@ compatibility backend for managed VAWS sessions.
 
 ## Critical rules
 
+- The root/main agent must delegate the remote benchmark run and evidence
+  collection according to
+  `../remote-toolbox/references/subagent-verification.md`. It keeps code-state
+  selection and final comparison decisions in the parent. An already-delegated
+  subagent executes directly without recursive delegation.
 - Replacing or relaunching a service inside the selected target container needs
   no approval. Ask before killing only when a conflicting process is outside
   that container.

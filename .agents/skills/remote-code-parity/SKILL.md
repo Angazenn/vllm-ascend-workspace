@@ -1,6 +1,6 @@
 ---
 name: remote-code-parity
-description: Ensure a ready remote runtime runs the exact current local workspace state before any remote smoke, service launch, or benchmark. Use automatically immediately before remote execution when direct local -> container SSH already works and local uncommitted changes must be reflected remotely. Do not use for initial machine attach, generic Git topology work, or unrelated local-only coding.
+description: Ensure a ready remote runtime runs the exact current local workspace state before any remote smoke, service launch, or benchmark. Use automatically immediately before remote execution when direct local-to-container SSH already works and local uncommitted changes must be reflected remotely. Do not use for initial machine attach, generic Git topology work, or unrelated local-only coding.
 ---
 
 # Remote Code Parity
@@ -24,6 +24,10 @@ Keep a **ready** remote runtime in exact code parity with the local `vllm-ascend
 
 ## Critical rules
 
+- When parity is a prerequisite for remote verification, the root/main agent
+  must delegate the combined parity-and-verification run according to
+  `../remote-toolbox/references/subagent-verification.md`. An already-delegated
+  subagent runs parity directly and must not delegate again.
 - Treat the **local working tree** as the source of truth: committed + staged + unstaged + untracked non-ignored.
 - Do **not** require the user to commit or push before parity.
 - Do **not** use `scp`, `sftp`, `rsync`, `sshpass`, or `expect`.

@@ -40,6 +40,9 @@ This skill is **only** about collection: start a profiled service, bracket a wor
 
 ## Critical rules
 
+- The root/main agent must delegate the remote profile collection and evidence
+  gates according to `../remote-toolbox/references/subagent-verification.md`.
+  An already-delegated subagent executes directly without recursive delegation.
 - Replacing or relaunching a service inside the selected target container needs
   no approval. Ask before killing only when a conflicting process is outside
   that container.

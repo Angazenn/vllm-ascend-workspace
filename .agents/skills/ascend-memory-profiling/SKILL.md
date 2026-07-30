@@ -61,6 +61,12 @@ All memory attribution is based on measured data — **no estimation or guessing
 
 **Always use the `vllm-ascend-serving` skill for service lifecycle management.** This profiling skill only collects and analyzes data — it attaches to a running service. **msprof wrapping is mandatory** for a complete, traceable memory breakdown.
 
+When remote collection is required, the root/main agent must delegate service
+execution, collection, and evidence capture according to
+`../remote-toolbox/references/subagent-verification.md`. Keep attribution
+judgment and the final report in the parent. An already-delegated subagent
+executes directly without recursive delegation.
+
 Replacing or relaunching a service inside the selected target container needs
 no approval. Ask before killing only when a conflicting process is outside that
 container.

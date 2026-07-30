@@ -31,6 +31,10 @@ Ready does **not** imply code sync, rebuild, serving, or benchmark readiness.
 
 ## Critical rules
 
+- For remote readiness verification or post-repair validation, the root/main
+  agent must delegate the bounded remote run according to
+  `../remote-toolbox/references/subagent-verification.md`. An already-delegated
+  subagent executes directly without recursive delegation.
 - Probe first.
 - Starting, restarting, or recreating the selected target container requires no
   user approval. Ask before killing any process outside that container. Never

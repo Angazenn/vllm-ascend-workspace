@@ -26,6 +26,10 @@ The verifier is configurable. Defaults preserve the original ad-hoc endpoint:
 
 ## Safety boundary
 
+- The root/main agent must delegate the remote launch, readiness wait, request,
+  and evidence collection according to
+  `../remote-toolbox/references/subagent-verification.md`. An already-delegated
+  subagent executes directly without recursive delegation.
 - Health probes, requests, and restarting vLLM or the selected target container
   do not require approval.
 - Ask for explicit approval before resetting an NPU/host or killing a process

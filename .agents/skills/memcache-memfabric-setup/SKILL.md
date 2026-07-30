@@ -9,6 +9,12 @@ Use this skill for the fragile source-build workflow needed by vLLM Ascend KV of
 
 Prefer the bundled script instead of recreating SSH, git, build, installer, and config-edit shell by hand.
 
+For remote status or install verification, the root/main agent must delegate
+the bounded remote run and evidence collection according to
+`../remote-toolbox/references/subagent-verification.md`. An already-delegated
+subagent executes directly without recursive delegation. Keep any source/script
+changes and final decisions in the parent.
+
 ## Entry Points
 
 Check current package/config/env state without changing source trees or installed files:

@@ -16,6 +16,10 @@ ps/kill commands.
 
 ## Critical Rules
 
+- For remote verification, the root/main agent must read and follow
+  `references/subagent-verification.md`: delegate the bounded remote run and
+  evidence collection to one subagent, while an already-delegated subagent
+  executes directly without recursive delegation.
 - Restarting vLLM or other processes inside the target container, and restarting
   that target container, require no approval. Ask before resetting an NPU/host
   or killing a process outside the target container; only then pass
@@ -108,3 +112,4 @@ inside the target container.
 - `.agents/skills/remote-toolbox/references/command-recipes.md`
 - `.agents/skills/remote-toolbox/references/acceptance.md`
 - `.agents/skills/remote-toolbox/references/stress-validation.md`
+- `.agents/skills/remote-toolbox/references/subagent-verification.md`
