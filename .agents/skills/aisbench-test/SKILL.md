@@ -1,12 +1,12 @@
 ---
-name: aisbench-gsm8k-test
-description: Run a simple AISBench GSM8K accuracy test against a vLLM API model on a remote Docker container. Use when the user asks to run ais_bench with vllm_api_general_chat and gsm8k_gen_0_shot_cot_chat_prompt, inspect the editable ais_bench_benchmark install, optionally adjust max_out_len or reduce the GSM8K test.jsonl sample count, and report the summary accuracy.
+name: aisbench-test
+description: Run AISBench GSM8K or GPQA accuracy tests against a vLLM API model on a remote Docker container. Use when the user asks to run ais_bench with vllm_api_general_chat and either gsm8k_gen_0_shot_cot_chat_prompt or gpqa_gen_0_shot_cot_chat_prompt, inspect the editable ais_bench_benchmark install, optionally adjust max_out_len or reduce the selected dataset sample count, and report summary accuracy.
 ---
 
-# AISBench GSM8K Test
+# AISBench Test
 
-Run the AISBench GSM8K generation accuracy path for the editable
-`ais_bench_benchmark` checkout.
+Run an AISBench generation accuracy test from the editable
+`ais_bench_benchmark` checkout. GSM8K is the default; select GPQA explicitly.
 
 Default target:
 
@@ -15,8 +15,10 @@ Default target:
 - package: `ais_bench_benchmark`
 - editable root: discovered from `pip show ais_bench_benchmark`
 - model config: `<editable-root>/ais_bench/benchmark/configs/models/vllm_api/vllm_api_general_chat.py`
-- dataset: `<editable-root>/ais_bench/datasets/gsm8k/test.jsonl`
-- command: `ais_bench --models vllm_api_general_chat --dataset gsm8k_gen_0_shot_cot_chat_prompt`
+- GSM8K dataset: `<editable-root>/ais_bench/datasets/gsm8k/test.jsonl`
+- GPQA dataset: `<editable-root>/ais_bench/datasets/gpqa/gpqa_diamond.csv`
+- GSM8K AISBench ID: `gsm8k_gen_0_shot_cot_chat_prompt`
+- GPQA AISBench ID: `gpqa_gen_0_shot_cot_chat_prompt`
 - run cwd: `/workspace`
 - container shell: `noninteractive` (`bash -lc`)
 
@@ -33,43 +35,50 @@ Default target:
   backup beside the original file.
 - This skill runs AISBench only. It does not launch or restart the vLLM API
   server that `vllm_api_general_chat` calls.
-- The GSM8K dataset may be intentionally truncated. Report the detected line
-  count with the final accuracy so the user knows the denominator.
+- A dataset may be intentionally truncated. Report the selected dataset and
+  detected sample count with the final accuracy so the user knows the denominator.
 
 ## Quick Start
 
 From the workspace root:
 
 ```bash
-python3 .agents/skills/aisbench-gsm8k-test/scripts/run_aisbench_gsm8k.py
+python3 .agents/skills/aisbench-test/scripts/run_aisbench.py
 ```
 
 Run against the known container and keep the current config/dataset unchanged:
 
 ```bash
-python3 .agents/skills/aisbench-gsm8k-test/scripts/run_aisbench_gsm8k.py \
+python3 .agents/skills/aisbench-test/scripts/run_aisbench.py \
   --host 192.168.13.157 \
   --container zyj_aisbench
 ```
 
-Inspect the editable install and dataset line count without running AISBench:
+Run GPQA:
 
 ```bash
-python3 .agents/skills/aisbench-gsm8k-test/scripts/run_aisbench_gsm8k.py \
+python3 .agents/skills/aisbench-test/scripts/run_aisbench.py \
+  --dataset gpqa
+```
+
+Inspect the editable install and dataset sample count without running AISBench:
+
+```bash
+python3 .agents/skills/aisbench-test/scripts/run_aisbench.py \
   --inspect-only
 ```
 
-Temporarily prepare a small 16-sample GSM8K run:
+Temporarily prepare a small 16-sample run of the selected dataset:
 
 ```bash
-python3 .agents/skills/aisbench-gsm8k-test/scripts/run_aisbench_gsm8k.py \
+python3 .agents/skills/aisbench-test/scripts/run_aisbench.py \
   --limit-samples 16
 ```
 
 Set the request output limit before running:
 
 ```bash
-python3 .agents/skills/aisbench-gsm8k-test/scripts/run_aisbench_gsm8k.py \
+python3 .agents/skills/aisbench-test/scripts/run_aisbench.py \
   --max-out-len 512
 ```
 
@@ -93,15 +102,21 @@ normally `/home/zyj/scripts/benchmark`.
 ```text
 <editable-root>/ais_bench/benchmark/configs/models/vllm_api/vllm_api_general_chat.py
 <editable-root>/ais_bench/datasets/gsm8k/test.jsonl
+<editable-root>/ais_bench/datasets/gpqa/gpqa_diamond.csv
 ```
 
 3. If requested, patch `max_out_len` in the model config. If requested, reduce
-   `test.jsonl` to the first `N` samples. Back up both files first.
+   the selected dataset to its first `N` samples. Preserve the GPQA CSV header
+   and back up every modified file first.
 
-4. Run:
+4. Run the selected dataset:
 
 ```bash
+# GSM8K
 ais_bench --models vllm_api_general_chat --dataset gsm8k_gen_0_shot_cot_chat_prompt
+
+# GPQA
+ais_bench --models vllm_api_general_chat --dataset gpqa_gen_0_shot_cot_chat_prompt
 ```
 
 5. Parse the summary path from AISBench output, read the generated markdown
@@ -109,6 +124,6 @@ ais_bench --models vllm_api_general_chat --dataset gsm8k_gen_0_shot_cot_chat_pro
 
 - editable project location
 - model config path
-- dataset path and line count
+- selected dataset, AISBench dataset ID, path, and sample count
 - summary markdown path
-- GSM8K accuracy
+- accuracy

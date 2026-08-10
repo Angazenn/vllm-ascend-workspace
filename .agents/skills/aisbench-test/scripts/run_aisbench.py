@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run AISBench GSM8K via a remote Docker container.
+"""Run AISBench GSM8K or GPQA via a remote Docker container.
 
 Progress is written to stderr. The final stdout payload is JSON.
 """
@@ -22,7 +22,30 @@ DEFAULT_CONTAINER = "zyj_aisbench"
 DEFAULT_RUN_CWD = "/workspace"
 PACKAGE_NAME = "ais_bench_benchmark"
 MODEL_NAME = "vllm_api_general_chat"
-DATASET_NAME = "gsm8k_gen_0_shot_cot_chat_prompt"
+
+
+@dataclass(frozen=True)
+class DatasetSpec:
+    cli_name: str
+    relative_path: tuple[str, ...]
+    summary_name: str
+    file_format: str
+
+
+DATASET_SPECS = {
+    "gsm8k": DatasetSpec(
+        cli_name="gsm8k_gen_0_shot_cot_chat_prompt",
+        relative_path=("gsm8k", "test.jsonl"),
+        summary_name="gsm8k",
+        file_format="jsonl",
+    ),
+    "gpqa": DatasetSpec(
+        cli_name="gpqa_gen_0_shot_cot_chat_prompt",
+        relative_path=("gpqa", "gpqa_diamond.csv"),
+        summary_name="gpqa",
+        file_format="csv",
+    ),
+}
 
 
 @dataclass
@@ -33,7 +56,7 @@ class RemoteResult:
 
 
 def log(message: str) -> None:
-    print(f"__AISBENCH_GSM8K_PROGRESS__={json.dumps({'message': message})}",
+    print(f"__AISBENCH_PROGRESS__={json.dumps({'message': message})}",
           file=sys.stderr,
           flush=True)
 
@@ -120,14 +143,14 @@ def discover_install(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
-def path_info(editable_root: str) -> dict[str, str]:
+def path_info(editable_root: str, dataset_spec: DatasetSpec) -> dict[str, str]:
     root = PurePosixPath(editable_root)
     return {
         "model_config": str(root / "ais_bench" / "benchmark" / "configs" /
                             "models" / "vllm_api" /
                             "vllm_api_general_chat.py"),
-        "dataset": str(root / "ais_bench" / "datasets" / "gsm8k" /
-                       "test.jsonl"),
+        "dataset": str(root / "ais_bench" / "datasets" /
+                       PurePosixPath(*dataset_spec.relative_path)),
     }
 
 
@@ -144,12 +167,25 @@ def validate_paths(args: argparse.Namespace, paths: dict[str, str]) -> None:
     require_ok(remote_exec(args, cmd), "validate_paths")
 
 
-def dataset_line_count(args: argparse.Namespace, dataset_path: str) -> int:
-    out = require_ok(
-        remote_exec(args, f"wc -l < {shell_quote_path(dataset_path)}"),
-        "dataset_line_count",
-    )
-    return int(out.strip() or "0")
+def dataset_sample_count(args: argparse.Namespace,
+                         dataset_path: str,
+                         dataset_spec: DatasetSpec) -> int:
+    if dataset_spec.file_format == "jsonl":
+        out = require_ok(
+            remote_exec(args, f"wc -l < {shell_quote_path(dataset_path)}"),
+            "dataset_sample_count",
+        )
+        return int(out.strip() or "0")
+
+    code = f"""
+from pathlib import Path
+import csv
+p = Path({dataset_path!r})
+with p.open(newline='', encoding='utf-8') as f:
+    count = max(sum(1 for _ in csv.reader(f)) - 1, 0)
+print(count)
+"""
+    return int(remote_python(args, code).strip() or "0")
 
 
 def remote_python(args: argparse.Namespace,
@@ -189,9 +225,11 @@ raise SystemExit("max_out_len pattern not found in " + str(p))
 
 def limit_dataset(args: argparse.Namespace,
                   dataset_path: str,
-                  limit: int) -> dict[str, str | int]:
+                  limit: int,
+                  dataset_spec: DatasetSpec) -> dict[str, str | int]:
     log(f"reducing dataset to first {limit} samples")
-    code = f"""
+    if dataset_spec.file_format == "jsonl":
+        code = f"""
 from pathlib import Path
 import time
 p = Path({dataset_path!r})
@@ -201,15 +239,30 @@ backup.write_text("".join(lines))
 p.write_text("".join(lines[:{limit}]))
 print(str(backup))
 """
+    else:
+        code = f"""
+from pathlib import Path
+import csv
+import time
+p = Path({dataset_path!r})
+backup = p.with_name(p.name + ".bak." + time.strftime("%Y%m%d_%H%M%S"))
+backup.write_bytes(p.read_bytes())
+with p.open(newline='', encoding='utf-8') as f:
+    rows = list(csv.reader(f))
+with p.open('w', newline='', encoding='utf-8') as f:
+    csv.writer(f).writerows(rows[:{limit + 1}])
+print(str(backup))
+"""
     backup_path = remote_python(args, code).strip()
     return {"dataset_backup": backup_path, "limit_samples": limit}
 
 
-def run_aisbench(args: argparse.Namespace) -> RemoteResult:
-    log("running ais_bench GSM8K")
+def run_aisbench(args: argparse.Namespace,
+                 dataset_spec: DatasetSpec) -> RemoteResult:
+    log(f"running ais_bench {args.dataset.upper()}")
     command = (
         f"cd {shell_quote_path(args.run_cwd)} && "
-        f"ais_bench --models {MODEL_NAME} --dataset {DATASET_NAME}"
+        f"ais_bench --models {MODEL_NAME} --dataset {dataset_spec.cli_name}"
     )
     return remote_exec(args, command, timeout=args.timeout)
 
@@ -226,16 +279,23 @@ def read_remote_file(args: argparse.Namespace, path: str) -> str:
     )
 
 
-def parse_accuracy(markdown: str, stdout: str) -> float | None:
+def parse_accuracy(markdown: str,
+                   stdout: str,
+                   summary_name: str) -> float | None:
+    dataset_pattern = rf"{re.escape(summary_name)}(?:_[^|\s]+)?"
     for text in (markdown, stdout):
         match = re.search(
-            r"\|\s*gsm8k\s*\|[^\n]+?\|\s*accuracy\s*\|\s*gen\s*\|\s*([0-9.]+)\s*\|",
+            rf"\|\s*{dataset_pattern}\s*\|[^\n]+?\|\s*accuracy\s*\|\s*gen\s*\|\s*([0-9.]+)\s*\|",
             text,
+            flags=re.IGNORECASE,
         )
         if match:
             return float(match.group(1))
-    match = re.search(r"gsm8k\s+\S+\s+accuracy\s+gen\s+([0-9.]+)",
-                      stdout)
+    match = re.search(
+        rf"{dataset_pattern}\s+\S+\s+accuracy\s+gen\s+([0-9.]+)",
+        stdout,
+        flags=re.IGNORECASE,
+    )
     return float(match.group(1)) if match else None
 
 
@@ -249,14 +309,18 @@ def main() -> int:
                         choices=("interactive", "noninteractive"),
                         default="noninteractive")
     parser.add_argument("--run-cwd", default=DEFAULT_RUN_CWD)
+    parser.add_argument("--dataset",
+                        choices=tuple(DATASET_SPECS),
+                        default="gsm8k")
     parser.add_argument("--max-out-len", type=int)
     parser.add_argument("--limit-samples", type=int)
     parser.add_argument("--inspect-only", action="store_true")
     parser.add_argument("--timeout", type=int, default=1800)
     args = parser.parse_args()
 
+    dataset_spec = DATASET_SPECS[args.dataset]
     install = discover_install(args)
-    paths = path_info(install["editable_project_location"])
+    paths = path_info(install["editable_project_location"], dataset_spec)
     validate_paths(args, paths)
 
     modifications: dict[str, str | int] = {}
@@ -264,10 +328,18 @@ def main() -> int:
         modifications.update(
             patch_max_out_len(args, paths["model_config"], args.max_out_len))
     if args.limit_samples is not None:
-        modifications.update(limit_dataset(args, paths["dataset"],
-                                           args.limit_samples))
+        modifications.update(limit_dataset(
+            args,
+            paths["dataset"],
+            args.limit_samples,
+            dataset_spec,
+        ))
 
-    dataset_lines_before_run = dataset_line_count(args, paths["dataset"])
+    dataset_samples_before_run = dataset_sample_count(
+        args,
+        paths["dataset"],
+        dataset_spec,
+    )
     if args.inspect_only:
         print(json.dumps({
             "status": "ok",
@@ -277,11 +349,16 @@ def main() -> int:
                 "run_cwd": args.run_cwd,
             },
             "modifications": modifications,
-            "dataset_line_count": dataset_lines_before_run,
+            "dataset": {
+                "name": args.dataset,
+                "aisbench_id": dataset_spec.cli_name,
+                "source_format": dataset_spec.file_format,
+            },
+            "dataset_sample_count": dataset_samples_before_run,
         }, indent=2, sort_keys=True))
         return 0
 
-    result = run_aisbench(args)
+    result = run_aisbench(args, dataset_spec)
     if result.returncode != 0:
         print(json.dumps({
             "status": "failed",
@@ -289,7 +366,12 @@ def main() -> int:
             "install": install,
             "paths": paths,
             "modifications": modifications,
-            "dataset_line_count": dataset_lines_before_run,
+            "dataset": {
+                "name": args.dataset,
+                "aisbench_id": dataset_spec.cli_name,
+                "source_format": dataset_spec.file_format,
+            },
+            "dataset_sample_count": dataset_samples_before_run,
             "returncode": result.returncode,
             "stdout_tail": result.stdout[-8000:],
             "stderr_tail": result.stderr[-8000:],
@@ -299,7 +381,11 @@ def main() -> int:
     combined_output = result.stdout + "\n" + result.stderr
     summary_path = parse_summary_path(combined_output)
     summary_markdown = read_remote_file(args, summary_path) if summary_path else ""
-    accuracy = parse_accuracy(summary_markdown, combined_output)
+    accuracy = parse_accuracy(
+        summary_markdown,
+        combined_output,
+        dataset_spec.summary_name,
+    )
 
     payload = {
         "status": "ok",
@@ -310,7 +396,12 @@ def main() -> int:
             "summary_markdown": summary_path or "",
         },
         "modifications": modifications,
-        "dataset_line_count": dataset_lines_before_run,
+        "dataset": {
+            "name": args.dataset,
+            "aisbench_id": dataset_spec.cli_name,
+            "source_format": dataset_spec.file_format,
+        },
+        "dataset_sample_count": dataset_samples_before_run,
         "result": {
             "accuracy": accuracy,
             "summary_markdown": summary_markdown,
