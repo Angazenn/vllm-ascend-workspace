@@ -18,6 +18,7 @@
 #
 
 from contextlib import contextmanager
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -50,6 +51,13 @@ from vllm_ascend.ascend_forward_context import (
     set_mc2_mask,
     set_mc2_tokens_capacity,
 )
+from vllm_ascend.distributed.kv_transfer.kv_pool.ascend_store.layerwise_cache_layout import (
+    apply_layerwise_kv_cache_plan,
+)
+from vllm_ascend.distributed.kv_transfer.sparse_kv_offload.sparse_kv_offload_manager import (
+    allocate_kv_offload_topk_profile_buffers,
+    init_sparse_kv_offload_manager,
+)
 from vllm_ascend.ops.rotary_embedding import set_cos_and_sin, update_cos_sin
 from vllm_ascend.utils import set_potential_max_tokens, vllm_version_is
 
@@ -79,6 +87,9 @@ class NPUModelRunner(GPUModelRunner):
     def __init__(self, vllm_config: VllmConfig, device: torch.device):
         # Ascend-specific configurations
         self.ascend_config = get_ascend_config()
+        self.sparse_kv_offload_config = self.ascend_config.sparse_kv_offload_config
+        self.sparse_kv_offload_enabled = self.sparse_kv_offload_config.enabled
+        self.sparse_kv_offload_manager = None
         # FusedMoE can be constructed by the parent initializer and reads this
         # capacity while setting up MC2 communication.
         set_potential_max_tokens(vllm_config)
@@ -163,6 +174,14 @@ class NPUModelRunner(GPUModelRunner):
         set_potential_max_tokens(vllm_config)
 
     def initialize_kv_cache(self, kv_cache_config: KVCacheConfig) -> None:
+        kv_cache_config = deepcopy(kv_cache_config)
+        apply_layerwise_kv_cache_plan(kv_cache_config, self.vllm_config)
+        if self.sparse_kv_offload_enabled:
+            self.sparse_kv_offload_manager = init_sparse_kv_offload_manager(
+                self.vllm_config,
+                kv_cache_config,
+                self.sparse_kv_offload_config,
+            )
         with graph_manager_wrapper(self):
             super().initialize_kv_cache(kv_cache_config)
             if self.pcp_manager is not None:
@@ -206,6 +225,13 @@ class NPUModelRunner(GPUModelRunner):
         necessary HCCL buffer for the MC2 operator before standard `profile_run`. Additionally, we set
         override_mrv2_in_profile_run to True to force moe load to be balanced when executing `profile_run`
         """
+        if self.sparse_kv_offload_enabled:
+            allocate_kv_offload_topk_profile_buffers(
+                self.get_kv_cache_spec(),
+                self.vllm_config,
+                self.sparse_kv_offload_config,
+            )
+
         mc2_tokens_capacity = get_mc2_tokens_capacity()
         with override_mrv2_in_profile_run(True):
             if (
